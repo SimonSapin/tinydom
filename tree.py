@@ -34,40 +34,56 @@ def parse_xml(input, encoding=None):
 
     root = []
     stack = []
-    # Use a one-element list to work around the lack on nonlocal on 2.x
-    stack_top = [root]
+    # Use a one-item list to work around the lack on nonlocal on 2.x
+    nonlocal_elements = [root]
 
     def handler(function):
         setattr(parser, function.__name__, function)
 
     @handler
     def StartElementHandler(name, attributes):
+        elements = nonlocal_elements[0]
+        if elements:
+            previous_element = elements[-1]
+            previous_element.tail = ''.join(previous_element.tail)
+
         namespace_url, _, local_name = name.rpartition(' ')
         attributes = dict(
             ((namespace_url, local_name), value)
             for name, value in iteritems(attributes)
             for namespace_url, _, local_name in [name.rpartition(' ')]
         ),
-        children = []
+        text = []
+        new_children = []
+        tail = []
         new_element = Element(
             namespace_url,
             local_name,
             attributes,
-            children,
+            text,
+            new_children,
+            tail,
             parser.CurrentLineNumber,
             parser.CurrentColumnNumber,
         )
-        stack_top[0].append(new_element)
-        stack.append(stack_top[0])
-        stack_top[0] = children
+        elements.append(new_element)
+        stack.append(elements)
+        nonlocal_elements[0] = new_children
 
     @handler
     def EndElementHandler(_name):
-        stack_top[0] = stack.pop()
+        elements = stack.pop()
+        ended_element = elements[-1]
+        ended_element.text = ''.join(ended_element.text)
+        nonlocal_elements[0] = elements
 
     @handler
     def CharacterDataHandler(data):
-        stack_top[0].append(TextNode(data))
+        elements = nonlocal_elements[0]
+        if elements:
+            elements[-1].tail.append(data)
+        else:
+            stack[-1][-1].text.append(data)
 
     if hasattr(input, 'read'):
         parser.ParseFile(input)
@@ -81,25 +97,16 @@ def parse_xml(input, encoding=None):
 
 def from_etree(etree_element):
     namespace_url, local_name = _split_etree_tag(etree_element.tag)
-    attributes = dict(
-        (_split_etree_tag(name), value)
-        for name, value in etree_element.items()
-    ),
-    children = []
-
-    if etree_element.text:
-        children.append(TextNode(etree_element.text))
-
-    for etree_child in etree_element:
-        children.append(from_etree(etree_child))
-        if etree_child.tail:
-            children.append(TextNode(etree_child.tail))
-
     return Element(
         namespace_url,
         local_name,
-        attributes,
-        children,
+        attributes=dict(
+            (_split_etree_tag(name), value)
+            for name, value in etree_element.items()
+        ),
+        text=etree_element.text or '',
+        children=[from_etree(etree_child) for etree_child in etree_element],
+        tail=etree_element.tail or '',
         line=getattr(etree_element, 'sourceline', None),
         column=None,
     )
@@ -115,19 +122,16 @@ def _split_etree_tag(tag):
 
 
 class Element(object):
-    def __init__(self, namespace_url, local_name, attributes, children,
-                 line, column):
+    def __init__(self, namespace_url, local_name, attributes,
+                 text, children, tail, line, column):
         self.namespace_url = namespace_url
         self.local_name = local_name
         self.attributes = attributes
+        self.text = text
         self.children = children
+        self.tail = tail
         self.line = line
         self.column = column
-
-
-class TextNode(object):
-    def __init__(self, text):
-        self.text = text
 
 
 if __name__ == '__main__':
