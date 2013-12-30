@@ -19,21 +19,33 @@ def parse_xml(input, encoding=None):
         input = input.encode('UTF-8')
         encoding = 'UTF-8'
 
-    # Namespace URLs can contains spaces, but element names can’t.
-    # So we’ll split on the *last* space.
-    parser = expat.ParserCreate(encoding, namespace_separator=' ')
+    parser = XMLParser(encoding)
+    if hasattr(input, 'read'):
+        parser.expat.ParseFile(input)
+    else:
+        parser.expat.Parse(input, True)
 
-    root = []
-    stack = []
-    # Use a one-item list to work around the lack on nonlocal on 2.x
-    nonlocal_elements = [root]
+    # All elements are closed:
+    assert len(parser.stack) == 0
+    # The top-level only has one node, the root element:
+    assert len(parser.elements) == 1
+    return parser.elements[0]
 
-    def handler(function):
-        setattr(parser, function.__name__, function)
 
-    @handler
-    def StartElementHandler(name, attributes):
-        elements = nonlocal_elements[0]
+class XMLParser(object):
+    def __init__(self, encoding=None):
+        self.stack = []
+        self.elements = []
+        # Namespace URLs can contains spaces, but element names can’t.
+        # So we’ll split on the *last* space.
+        self.expat = expat.ParserCreate(encoding, namespace_separator=' ')
+
+        self.expat.StartElementHandler = self.start_element
+        self.expat.EndElementHandler = self.end_element
+        self.expat.CharacterDataHandler = self.charater_data
+
+    def start_element(self, name, attributes):
+        elements = self.elements
         if elements:
             previous_element = elements[-1]
             previous_element.tail = ''.join(previous_element.tail)
@@ -54,36 +66,25 @@ def parse_xml(input, encoding=None):
             text,
             new_children,
             tail,
-            parser.CurrentLineNumber,
-            parser.CurrentColumnNumber,
+            self.expat.CurrentLineNumber,
+            self.expat.CurrentColumnNumber,
         )
         elements.append(new_element)
-        stack.append(elements)
-        nonlocal_elements[0] = new_children
+        self.stack.append(elements)
+        self.elements = new_children
 
-    @handler
-    def EndElementHandler(_name):
-        elements = stack.pop()
+    def end_element(self, _name):
+        elements = self.stack.pop()
         ended_element = elements[-1]
         ended_element.text = ''.join(ended_element.text)
-        nonlocal_elements[0] = elements
+        self.elements = elements
 
-    @handler
-    def CharacterDataHandler(data):
-        elements = nonlocal_elements[0]
+    def charater_data(self, data):
+        elements = self.elements
         if elements:
             elements[-1].tail.append(data)
         else:
-            stack[-1][-1].text.append(data)
-
-    if hasattr(input, 'read'):
-        parser.ParseFile(input)
-    else:
-        parser.Parse(input, True)
-
-    assert len(stack) == 0  # All elements are closed
-    assert len(root) == 1  # The top-level only has one node, the root element.
-    return root[0]
+            self.stack[-1][-1].text.append(data)
 
 
 def parse_html(input, encoding=None):
@@ -145,3 +146,10 @@ class Element(object):
         self.tail = tail
         self.line = line
         self.column = column
+
+    def __repr__(self):
+        return '<Element %s%s at 0x%x>' % (
+            '{%s}' % self.namespace_url if self.namespace_url else '',
+            self.local_name,
+            id(self),
+        )
