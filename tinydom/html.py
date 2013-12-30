@@ -1,7 +1,13 @@
+from html5lib import HTMLParser as BaseHTMLParser
 from html5lib.treebuilders import _base
 
 from . import Element
 from ._compat import iteritems
+
+
+class HTMLParser(BaseHTMLParser):
+    def __init__(self, *args, **kwargs):
+        super(HTMLParser, self).__init__(TreeBuilder, *args, **kwargs)
 
 
 class DocumentNode(object):
@@ -11,6 +17,7 @@ class DocumentNode(object):
     def appendChild(self, root):
         assert self.root is None
         self.root = root
+
 
 class ElementNode(object):
     def __init__(self, name, namespace):
@@ -87,5 +94,8 @@ class TreeBuilder(_base.TreeBuilder):
     def insertDoctype(self, _token):
         pass
 
-    def insertComment(self, _token, parent=None):
+    def insertComment(self, _token, _parent=None):
         pass
+
+    def getDocument(self):
+        return self.document.root._element

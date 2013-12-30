@@ -18,18 +18,12 @@ def parse_xml(input, encoding=None):
     if isinstance(input, unicode):
         input = input.encode('UTF-8')
         encoding = 'UTF-8'
-
     parser = XMLParser(encoding)
     if hasattr(input, 'read'):
         parser.expat.ParseFile(input)
     else:
         parser.expat.Parse(input, True)
-
-    # All elements are closed:
-    assert len(parser.stack) == 0
-    # The top-level only has one node, the root element:
-    assert len(parser.elements) == 1
-    return parser.elements[0]
+    return parser.get_root()
 
 
 class XMLParser(object):
@@ -43,6 +37,11 @@ class XMLParser(object):
         self.expat.StartElementHandler = self.start_element
         self.expat.EndElementHandler = self.end_element
         self.expat.CharacterDataHandler = self.charater_data
+
+    def get_root(self):
+        assert len(self.stack) == 0  # All elements are closed
+        assert len(self.elements) == 1  # Only one top-level element, the root
+        return self.elements[0]
 
     def start_element(self, name, attributes):
         elements = self.elements
@@ -97,12 +96,8 @@ def parse_html(input, encoding=None):
     :returns:
         the :class:`Element` object for the root element.
     """
-    from html5lib import HTMLParser
-    from .html import TreeBuilder
-
-    parser = HTMLParser(TreeBuilder)
-    document = parser.parse(input, encoding, useChardet=False)
-    return document.root._element
+    from .html import HTMLParser
+    return HTMLParser().parse(input, encoding, useChardet=False)
 
 
 def from_etree(etree_element):
