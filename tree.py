@@ -244,18 +244,3 @@ class Element(object):
         self.tail = tail
         self.line = line
         self.column = column
-
-
-if __name__ == '__main__':
-    xml = '''
-        <r>
-            <aé xmlns:n="U" n:b="c" />
-        </r>
-    '''
-    parse_xml(xml)
-
-    import xml.etree.ElementTree as etree
-    from_etree(etree.fromstring(xml))
-
-    t = parse_html('<!DOCTYPE html><p>a<b>c<!-- fuu --></b>d')
-    print(t.local_name, t.children[1].children[0].children[0].text)
