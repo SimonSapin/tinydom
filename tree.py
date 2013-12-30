@@ -7,11 +7,15 @@ try:
 except AttributeError:
     iteritems = dict.items
 
-
 try:
     unicode = unicode
 except NameError:
     unicode = str
+
+try:
+    basestring = basestring
+except NameError:
+    basestring = str
 
 
 def parse_xml(input, encoding=None):
@@ -209,7 +213,12 @@ def from_etree(etree_element):
             for name, value in etree_element.items()
         ),
         text=etree_element.text or '',
-        children=[from_etree(etree_child) for etree_child in etree_element],
+        children=[
+            from_etree(etree_child)
+            for etree_child in etree_element
+            # Leave out comments and processing instructions:
+            if isinstance(etree_child.tag, basestring)
+        ],
         tail=etree_element.tail or '',
         line=getattr(etree_element, 'sourceline', None),
     )
