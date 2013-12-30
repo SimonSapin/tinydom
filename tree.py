@@ -95,6 +95,110 @@ def parse_xml(input, encoding=None):
     return root[0]
 
 
+def parse_html(input, encoding=None):
+    """Parse from HTML, using html5lib.
+
+    :param input:
+        A file-like object (anything with a :meth:`~file.read` method),
+        a byte string,
+        or an Unicode string.
+    :returns:
+        the :class:`Element` object for the root element.
+    """
+    from html5lib import HTMLParser
+    from html5lib.treebuilders import _base
+
+    class DocumentNode(object):
+        def __init__(self):
+            self.root = None
+
+        def appendChild(self, root):
+            assert self.root is None
+            self.root = root
+
+    class ElementNode(object):
+        def __init__(self, name, namespace):
+            self._element = Element(
+                namespace, name, attributes={}, text='', children=[], tail='')
+            self.nameTuple = (namespace, name)
+            self.namespace = namespace
+            self.name = name
+            self.parent = None
+            self._childNodes = []
+            self._attributes = {}
+
+        @property
+        def attributes(self):
+            return self._attributes
+
+        @attributes.setter
+        def attributes(self, new_attributes):
+            self._attributes = new_attributes
+            self._element.attributes = dict(
+                ((key[2], key[1]) if isinstance(key, tuple) else key, value)
+                for key, value in iteritems(new_attributes)
+            )
+
+        def hasContent(self):
+            return bool(self._element.text or self._element.children)
+
+        def appendChild(self, node):
+            self._childNodes.append(node)
+            self._element.children.append(node._element)
+            node.parent = self
+
+        def insertBefore(self, node, refNode):
+            index = self._element.children.index(refNode._element)
+            self._element.children.insert(index, node._element)
+            node.parent = self
+
+        def removeChild(self, node):
+            self._element.children.remove(node._element)
+            node.parent = None
+
+        def insertText(self, data, insertBefore=None):
+            if not self._element.children:
+                self._element.text += data
+            elif insertBefore is None:
+                # Insert the text as the tail of the last child element
+                self._element.children[-1].tail += data
+            else:
+                # Insert the text before the specified node
+                index = self._element.children.index(insertBefore._element)
+                self._element.children[index - 1].tail += data
+
+        def cloneNode(self):
+            element = ElementNode(self.name, self.namespace)
+            element._element.attributes = self._element.attributes.copy()
+            return element
+
+        def reparentChildren(self, newParent):
+            if newParent._element.children:
+                newParent._element.children[-1].tail += self._element.text
+            else:
+                newParent._element.text += self._element.text
+            self._element.text = ""
+            for child in self._childNodes:
+                newParent.appendChild(child)
+            self._childNodes = []
+            self._element.children = []
+
+
+    class TreeBuilder(_base.TreeBuilder):
+        documentClass = DocumentNode
+        elementClass = ElementNode
+
+        def insertDoctype(self, _token):
+            pass
+
+        def insertComment(self, _token, parent=None):
+            pass
+
+    parser = HTMLParser(TreeBuilder)
+    document = parser.parse(input, encoding, useChardet=False)
+    return document.root._element
+
+
 def from_etree(etree_element):
     namespace_url, local_name = _split_etree_tag(etree_element.tag)
     return Element(
@@ -108,7 +212,6 @@ def from_etree(etree_element):
         children=[from_etree(etree_child) for etree_child in etree_element],
         tail=etree_element.tail or '',
         line=getattr(etree_element, 'sourceline', None),
-        column=None,
     )
 
 
@@ -123,7 +226,7 @@ def _split_etree_tag(tag):
 
 class Element(object):
     def __init__(self, namespace_url, local_name, attributes,
-                 text, children, tail, line, column):
+                 text, children, tail, line=None, column=None):
         self.namespace_url = namespace_url
         self.local_name = local_name
         self.attributes = attributes
@@ -141,5 +244,9 @@ if __name__ == '__main__':
         </r>
     '''
     parse_xml(xml)
+
     import xml.etree.ElementTree as etree
     from_etree(etree.fromstring(xml))
+
+    t = parse_html('<!DOCTYPE html><p>a<b>c<!-- fuu --></b>d')
+    print(t.local_name, t.children[1].children[0].children[0].text)
